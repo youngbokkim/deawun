@@ -5,6 +5,7 @@ import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
 import '../models/estimate.dart';
 import '../providers/estimate_provider.dart';
+import '../utils/file_saver.dart';
 import '../utils/pdf_generator.dart';
 
 /// PDF 출력물을 실제 PDF 형태로 미리보기하고, 인쇄/공유할 수 있는 화면
@@ -43,19 +44,33 @@ class PdfPreviewScreen extends StatelessWidget {
 
     try {
       final bytes = await PdfGenerator.generateEstimatePdf(estimate);
-      final path = await FilePicker.platform.saveFile(
-        bytes: bytes,
-        fileName: fileName,
-        type: FileType.custom,
-        allowedExtensions: ['pdf'],
-      );
+      String? path;
+      try {
+        path = await FilePicker.platform.saveFile(
+          bytes: bytes,
+          fileName: fileName,
+          type: FileType.custom,
+          allowedExtensions: ['pdf'],
+        );
+      } catch (_) {
+        path = await FilePicker.platform.saveFile(
+          fileName: fileName,
+          type: FileType.custom,
+          allowedExtensions: ['pdf'],
+        );
+      }
+      if (path != null && path.isNotEmpty) {
+        await saveBytesToFile(path, bytes);
+      }
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
               path != null && path.isNotEmpty
                   ? 'PDF가 저장되었습니다.\n$path'
-                  : 'PDF 파일이 저장되었습니다.',
+                  : path == null
+                      ? '저장이 취소되었습니다.'
+                      : 'PDF 파일이 저장되었습니다.',
             ),
             duration: const Duration(seconds: 3),
           ),

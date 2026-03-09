@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/estimate_provider.dart';
+import '../providers/estimate_template_provider.dart';
 import '../models/estimate_item.dart';
 import '../utils/app_theme.dart';
 import '../utils/currency_formatter.dart';
@@ -548,96 +550,263 @@ class _ItemsTab extends StatelessWidget {
 
   void _showItemDialog(BuildContext context, EstimateProvider provider,
       {EstimateItem? item, int? index}) {
-    final isEditing = item != null;
-    final productNameController =
-        TextEditingController(text: item?.productName ?? '');
-    final specController =
-        TextEditingController(text: item?.specification ?? '');
-    final unitController = TextEditingController(text: item?.unit ?? '대');
-    final quantityController =
-        TextEditingController(text: (item?.quantity ?? 1).toString());
-    final priceController = TextEditingController(
-        text: item != null ? item.unitPrice.toStringAsFixed(0) : '');
-    final noteController = TextEditingController(text: item?.note ?? '');
-
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(isEditing ? '항목 수정' : '항목 추가'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: productNameController,
-                decoration: const InputDecoration(labelText: '품명'),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: specController,
-                decoration: const InputDecoration(labelText: '규격'),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: unitController,
-                      decoration: const InputDecoration(labelText: '단위'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextField(
-                      controller: quantityController,
-                      decoration: const InputDecoration(labelText: '수량'),
-                      keyboardType: TextInputType.number,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: priceController,
-                decoration: const InputDecoration(labelText: '단가'),
-                keyboardType: TextInputType.number,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: noteController,
-                decoration: const InputDecoration(labelText: '비고'),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('취소'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              final newItem = EstimateItem(
-                id: item?.id,
-                productName: productNameController.text,
-                specification: specController.text,
-                unit: unitController.text,
-                quantity: int.tryParse(quantityController.text) ?? 1,
-                unitPrice: double.tryParse(priceController.text) ?? 0,
-                note: noteController.text,
-              );
-
-              if (isEditing && index != null) {
-                provider.updateItem(index, newItem);
-              } else {
-                provider.addItem(newItem);
-              }
-              Navigator.pop(context);
-            },
-            child: Text(isEditing ? '수정' : '추가'),
-          ),
-        ],
+      builder: (context) => _EstimateItemDialog(
+        estimateProvider: provider,
+        item: item,
+        index: index,
       ),
+    );
+  }
+}
+
+class _EstimateItemDialog extends StatefulWidget {
+  const _EstimateItemDialog({
+    required this.estimateProvider,
+    this.item,
+    this.index,
+  });
+
+  final EstimateProvider estimateProvider;
+  final EstimateItem? item;
+  final int? index;
+
+  @override
+  State<_EstimateItemDialog> createState() => _EstimateItemDialogState();
+}
+
+class _EstimateItemDialogState extends State<_EstimateItemDialog> {
+  late final TextEditingController _productNameController;
+  late final TextEditingController _specController;
+  late final TextEditingController _unitController;
+  late final TextEditingController _quantityController;
+  late final TextEditingController _priceController;
+  late final TextEditingController _noteController;
+
+  List<EstimateItem> _searchResults = [];
+  bool _searching = false;
+  Timer? _searchDebounce;
+  EstimateTemplateProvider? _templateProvider;
+
+  @override
+  void initState() {
+    super.initState();
+    final item = widget.item;
+    _productNameController =
+        TextEditingController(text: item?.productName ?? '');
+    _specController =
+        TextEditingController(text: item?.specification ?? '');
+    _unitController = TextEditingController(text: item?.unit ?? '대');
+    _quantityController =
+        TextEditingController(text: (item?.quantity ?? 1).toString());
+    _priceController = TextEditingController(
+        text: item != null ? item.unitPrice.toStringAsFixed(0) : '');
+    _noteController = TextEditingController(text: item?.note ?? '');
+
+    _productNameController.addListener(_onProductNameOrSpecChanged);
+    _specController.addListener(_onProductNameOrSpecChanged);
+  }
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _productNameController.removeListener(_onProductNameOrSpecChanged);
+    _specController.removeListener(_onProductNameOrSpecChanged);
+    _productNameController.dispose();
+    _specController.dispose();
+    _unitController.dispose();
+    _quantityController.dispose();
+    _priceController.dispose();
+    _noteController.dispose();
+    super.dispose();
+  }
+
+  void _onProductNameOrSpecChanged() {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 200), _runSearch);
+  }
+
+  Future<void> _runSearch() async {
+    if (!mounted) return;
+    _templateProvider ??= context.read<EstimateTemplateProvider>();
+    final provider = _templateProvider;
+    if (provider == null) return;
+    setState(() => _searching = true);
+    try {
+      final results = await provider.searchByProductNameAndSpec(
+        _productNameController.text,
+        _specController.text,
+      );
+      if (mounted) {
+        setState(() {
+          _searchResults = results;
+          _searching = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _searchResults = [];
+          _searching = false;
+        });
+      }
+    }
+  }
+
+  void _applyTemplate(EstimateItem t) {
+    setState(() {
+      _productNameController.text = t.productName;
+      _specController.text = t.specification;
+      _unitController.text = t.unit;
+      _quantityController.text = t.quantity.toString();
+      _priceController.text = t.unitPrice.toStringAsFixed(0);
+      _noteController.text = t.note;
+      _searchResults = [];
+    });
+  }
+
+  void _submit() {
+    final newItem = EstimateItem(
+      id: widget.item?.id,
+      productName: _productNameController.text,
+      specification: _specController.text,
+      unit: _unitController.text,
+      quantity: int.tryParse(_quantityController.text) ?? 1,
+      unitPrice: double.tryParse(_priceController.text) ?? 0,
+      note: _noteController.text,
+    );
+
+    if (widget.item != null && widget.index != null) {
+      widget.estimateProvider.updateItem(widget.index!, newItem);
+    } else {
+      widget.estimateProvider.addItem(newItem);
+    }
+    context.read<EstimateTemplateProvider>().addTemplate(newItem);
+    Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isEditing = widget.item != null;
+
+    return AlertDialog(
+      title: Text(isEditing ? '항목 수정' : '항목 추가'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TextField(
+              controller: _productNameController,
+              decoration: InputDecoration(
+                labelText: '품명',
+                hintText: '입력 시 저장된 항목이 아래에 표시됩니다',
+                suffixIcon: _searching
+                    ? const SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: Padding(
+                          padding: EdgeInsets.all(12),
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      )
+                    : null,
+              ),
+            ),
+            if (_searchResults.isNotEmpty &&
+                (_productNameController.text.isNotEmpty ||
+                    _specController.text.isNotEmpty)) ...[
+              const SizedBox(height: 4),
+              Container(
+                constraints: const BoxConstraints(maxHeight: 140),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade50,
+                  border: Border.all(color: AppTheme.borderColor),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  padding: EdgeInsets.zero,
+                  itemCount: _searchResults.length,
+                  itemBuilder: (context, i) {
+                    final t = _searchResults[i];
+                    return ListTile(
+                      dense: true,
+                      title: Text(
+                        t.productName,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w500, fontSize: 13),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      subtitle: t.specification.isEmpty
+                          ? null
+                          : Text(
+                              t.specification,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                      trailing: Text(
+                        '${t.unit} · ${CurrencyFormatter.format(t.unitPrice)}',
+                        style: const TextStyle(fontSize: 11),
+                      ),
+                      onTap: () => _applyTemplate(t),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+            TextField(
+              controller: _specController,
+              decoration: const InputDecoration(
+                labelText: '규격',
+                hintText: '입력 시 품명·규격 기준으로 위 목록이 필터됩니다',
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _unitController,
+                    decoration: const InputDecoration(labelText: '단위'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextField(
+                    controller: _quantityController,
+                    decoration: const InputDecoration(labelText: '수량'),
+                    keyboardType: TextInputType.number,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _priceController,
+              decoration: const InputDecoration(labelText: '단가'),
+              keyboardType: TextInputType.number,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _noteController,
+              decoration: const InputDecoration(labelText: '비고'),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('취소'),
+        ),
+        ElevatedButton(
+          onPressed: _submit,
+          child: Text(isEditing ? '수정' : '추가'),
+        ),
+      ],
     );
   }
 }

@@ -67,16 +67,29 @@ class DetailItem {
   }
 
   factory DetailItem.fromJson(Map<String, dynamic> json) {
+    int toInt(dynamic v, {int defaultValue = 0}) {
+      if (v == null) return defaultValue;
+      if (v is int) return v;
+      if (v is num) return v.toInt();
+      return int.tryParse(v.toString()) ?? defaultValue;
+    }
+
+    double toDoubleSafe(dynamic v) {
+      if (v == null) return 0;
+      if (v is num) return v.toDouble();
+      return double.tryParse(v.toString()) ?? 0;
+    }
+
     return DetailItem(
       id: json['id'],
-      no: json['no'] ?? 0,
-      productName: json['productName'] ?? '',
-      specification: json['specification'] ?? '',
-      unit: json['unit'] ?? '대',
-      quantity: json['quantity'] ?? 1,
-      materialUnitPrice: (json['materialUnitPrice'] ?? 0).toDouble(),
-      laborUnitPrice: (json['laborUnitPrice'] ?? 0).toDouble(),
-      note: json['note'] ?? '',
+      no: toInt(json['no']),
+      productName: (json['productName'] ?? '').toString(),
+      specification: (json['specification'] ?? '').toString(),
+      unit: (json['unit'] ?? '대').toString(),
+      quantity: toInt(json['quantity'], defaultValue: 1),
+      materialUnitPrice: toDoubleSafe(json['materialUnitPrice']),
+      laborUnitPrice: toDoubleSafe(json['laborUnitPrice']),
+      note: (json['note'] ?? '').toString(),
     );
   }
 }

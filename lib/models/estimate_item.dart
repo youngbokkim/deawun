@@ -54,14 +54,27 @@ class EstimateItem {
   }
 
   factory EstimateItem.fromJson(Map<String, dynamic> json) {
+    int toInt(dynamic v) {
+      if (v == null) return 1;
+      if (v is int) return v;
+      if (v is num) return v.toInt();
+      return int.tryParse(v.toString()) ?? 1;
+    }
+
+    double toDoubleSafe(dynamic v) {
+      if (v == null) return 0;
+      if (v is num) return v.toDouble();
+      return double.tryParse(v.toString()) ?? 0;
+    }
+
     return EstimateItem(
       id: json['id'],
-      productName: json['productName'] ?? '',
-      specification: json['specification'] ?? '',
-      unit: json['unit'] ?? '대',
-      quantity: json['quantity'] ?? 1,
-      unitPrice: (json['unitPrice'] ?? 0).toDouble(),
-      note: json['note'] ?? '',
+      productName: (json['productName'] ?? '').toString(),
+      specification: (json['specification'] ?? '').toString(),
+      unit: (json['unit'] ?? '대').toString(),
+      quantity: toInt(json['quantity']),
+      unitPrice: toDoubleSafe(json['unitPrice']),
+      note: (json['note'] ?? '').toString(),
     );
   }
 }
