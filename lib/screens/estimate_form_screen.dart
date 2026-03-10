@@ -979,7 +979,7 @@ class _NotesTab extends StatelessWidget {
                     ),
                   ),
                 ),
-                ?trailing,
+                if (trailing != null) trailing,
               ],
             ),
             const Divider(height: 24),
